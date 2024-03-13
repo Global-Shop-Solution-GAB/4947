@@ -1,0 +1,244 @@
+Program.Sub.ScreenSU.Start
+Gui.Form..Create
+Gui.Form..Caption("Sort Code Excluded in Copying Same Part")
+Gui.Form..Size(6135,14325)
+Gui.Form..MinX(0)
+Gui.Form..MinY(0)
+Gui.Form..Position(0,0)
+Gui.Form..BackColor(-2147483633)
+Gui.Form..MousePointer(0)
+Gui.Form..Event(UnLoad,Form_UnLoad)
+Gui.Form.lbl1.Create(Label,"Sort Code",True,1935,255,0,195,330,True,0,"Arial",8,-2147483633,0)
+Gui.Form.cmdAdd.Create(Button)
+Gui.Form.cmdAdd.Size(855,375)
+Gui.Form.cmdAdd.Position(1620,570)
+Gui.Form.cmdAdd.TabStop(True)
+Gui.Form.cmdAdd.TabIndex(2)
+Gui.Form.cmdAdd.Caption("Add")
+Gui.Form.cmdAdd.Event(Click,cmdAdd_Click)
+Gui.Form.gsCodeSort.Create(GsGridControl)
+Gui.Form.gsCodeSort.Size(5565,12525)
+Gui.Form.gsCodeSort.Position(180,1065)
+Gui.Form.gsCodeSort.TabStop(True)
+Gui.Form.gsCodeSort.TabIndex(3)
+Gui.Form.gsCodeSort.Event(RowCellClick,gsCodeSource_RowCellClick)
+Gui.Form.ddlSortCode.Create(DropDownList)
+Gui.Form.ddlSortCode.Size(1230,330)
+Gui.Form.ddlSortCode.Position(225,600)
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'BN, Feb 13, 2018
+F.Intrinsic.Control.SetErrorHandler("Main")
+F.Intrinsic.Control.ClearErrors
+V.Local.sError.Declare(String)	
+
+F.odbc.Connection!con.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+
+'Inventory > File > Inventory Parts > Save button - Post Save hook
+F.Intrinsic.Control.If(V.Caller.Hook,=,10185)
+	f.Intrinsic.Control.CallSub("Processing_Update")
+	
+'Run from a custom menu item
+f.Intrinsic.Control.Else
+	f.Intrinsic.Control.CallSub("Maintenance_Program")		
+F.Intrinsic.Control.EndIf
+	
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Main")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: Project",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+Program.Sub.Main.End
+
+Program.Sub.Processing_Update.Start
+F.Intrinsic.Control.SetErrorHandler("Processing_Update")
+F.Intrinsic.Control.ClearErrors
+v.Local..BulkDeclareString(sError,sSQL,sRet)
+v.Local..BulkDeclareLong(iRet,iCnt)
+
+'Part::000007/Rev::000008/Loc::000009
+
+'Check to see if the part has multiple locations
+F.Intrinsic.String.Build("Select Part,Location From Inventory_Mstr Where Part = '{0}';",V.Passed.000007,V.Local.sSQL)
+F.Data.DataTable.CreateFromSQL("dtInv","con",V.Local.sSQL,True)
+
+'Part has more than 1 location
+F.Intrinsic.Control.If(V.DataTable.dtInv.RowCount,>,1)
+	F.Intrinsic.UI.Msgbox("Update information for matching parts in other locations?","Update?",4,V.Local.iRet)
+	'User say Yes
+	F.Intrinsic.Control.If(V.Local.iRet,=,6)
+		'Check to see if the Part has the Code_Sort in the list created by the Maintenance Program
+		f.Intrinsic.String.Build("Select * from GCG_4947_Code_Sort where Code_Sort = '{0}'",V.Passed.000025,v.Local.sSQL)
+		f.ODBC.Connection!con.ExecuteAndReturn(v.Local.sSQL,v.Local.sRet)
+		f.Intrinsic.Control.If(v.Local.sRet,<>,"")
+			f.Intrinsic.UI.Msgbox("The Part has Sort Code in the Exclusion List of Copying Same Part. No update to other locations will be done on this Part.")
+			f.Intrinsic.Control.ExitSub
+		f.Intrinsic.Control.EndIf		
+	
+		'1/Pull Original Part Information (Inventory_Mstr,Inventory_Mst2,Inventory_Mst3)
+		'dtInvMstr1 
+		F.Intrinsic.String.Build("Select Part,Location,Product_Line,Description,UM_Inventory,Flag_Inactive,Amt_Price,Amt_Alt_Cost,UM_Purchasing,Time_Material_Lead,Flag_Lot,Flag_Serialize,Factor_Conversion,Obsolete_Flag,Code_Sort From Inventory_Mstr Where Part = '{0}' And Location = '{1}';",V.Passed.000007,V.Passed.000009,V.Local.sSQL)				
+		F.Data.DataTable.CreateFromSQL("dtInvMstr1","con",V.Local.sSQL,True)		
+		'dtInvMst21
+		F.Intrinsic.String.Build("Select Part,Location,Code_Source,Description_2,Description_3 From Inventory_Mst2 Where Part = '{0}' And Location = '{1}';",V.Passed.000007,V.Passed.000009,V.Local.sSQL)	
+		F.Data.DataTable.CreateFromSQL("dtInvMst21","con",V.Local.sSQL,True)		
+		'dtInvMst31
+		F.Intrinsic.String.Build("Select Part,Location,Consump_Conv From Inventory_Mst3 Where Part = '{0}' And Location = '{1}';",V.Passed.000007,V.Passed.000009,V.Local.sSQL)
+		F.Data.DataTable.CreateFromSQL("dtInvMst31","con",V.Local.sSQL,True)			
+		'dtInvMstr2
+		F.Intrinsic.String.Build("Select * From Inventory_Mstr Where Part = '{0}' And Location <> '{1}';",V.Passed.000007,V.Passed.000009,V.Local.sSQL)
+		F.Data.DataTable.CreateFromSQL("dtInvMstr2","con",V.Local.sSQL,True)		
+		'Prepare Update other locations Inventory_MSTR
+		F.Data.DataTable.SetValue("dtInvMstr2",-1,"Product_Line",V.DataTable.dtInvMstr1(0).Product_Line!FieldVal,"Description",V.DataTable.dtInvMstr1(0).Description!FieldVal,"UM_Inventory",V.DataTable.dtInvMstr1(0).UM_Inventory!FieldVal,"Flag_Inactive",V.DataTable.dtInvMstr1(0).Flag_Inactive!FieldVal,"Amt_Price",V.DataTable.dtInvMstr1(0).Amt_Price!FieldVal,"Amt_Alt_Cost",V.DataTable.dtInvMstr1(0).Amt_Alt_Cost!FieldVal,"UM_Purchasing",V.DataTable.dtInvMstr1(0).UM_Purchasing!FieldVal,"Time_Material_Lead",V.DataTable.dtInvMstr1(0).Time_Material_Lead!FieldVal,"Flag_Lot",V.DataTable.dtInvMstr1(0).Flag_Lot!FieldVal,"Flag_Serialize",V.DataTable.dtInvMstr1(0).Flag_Serialize!FieldVal,"Factor_Conversion",V.DataTable.dtInvMstr1(0).Factor_Conversion!FieldVal,"Obsolete_Flag",V.DataTable.dtInvMstr1(0).Obsolete_Flag!FieldVal,"Code_Sort",V.DataTable.dtInvMstr1(0).Code_Sort!FieldVal)		
+		'dtInvMst22
+		F.Intrinsic.String.Build("Select * From Inventory_Mst2 Where Part = '{0}' And Location <> '{1}';",V.Passed.000007,V.Passed.000009,V.Local.sSQL)
+		F.Data.DataTable.CreateFromSQL("dtInvMst22","con",V.Local.sSQL,True)
+		'Prepare Update other locations Inventory_Mst2
+		F.Data.DataTable.SetValue("dtInvMst22",-1,"Code_Source",V.DataTable.dtInvMst21(0).Code_Source!FieldVal,"Description_2",V.DataTable.dtInvMst21(0).Description_2!FieldVal,"Description_3",V.DataTable.dtInvMst21(0).Description_3!FieldVal)		
+		'dtInvMst32
+		F.Intrinsic.String.Build("Select * From Inventory_Mst3 Where Part = '{0}' And Location <> '{1}';",V.Passed.000007,V.Passed.000009,V.Local.sSQL)						
+		F.Data.DataTable.CreateFromSQL("dtInvMst32","con",V.Local.sSQL,True)
+		'Prepare Update other locations Inventory_Mst3
+		F.Data.DataTable.SetValue("dtInvMst32",-1,"Consump_Conv",V.DataTable.dtInvMst31(0).Consump_Conv!FieldVal)
+		'Update DB
+		F.Data.DataTable.SaveToDB("dtInvMstr2","con","Inventory_Mstr","Part*!*Location")
+		F.Data.DataTable.SaveToDB("dtInvMst22","con","Inventory_Mst2","Part*!*Location")
+		F.Data.DataTable.SaveToDB("dtInvMst32","con","Inventory_Mst3","Part*!*Location")
+		
+		'2/Pull Original Part Cross Ref Information (Inv_Cross_Ref,Part_Xref_User)
+		F.Intrinsic.String.Build("Select * From Inv_Cross_Ref Where Part = '{0}' And Location = '{1}';",V.Passed.000007,V.Passed.000009,V.Local.sSQL)
+		F.Data.DataTable.CreateFromSQL("dtInvX1","con",V.Local.sSQL,True)
+		F.Intrinsic.String.Build("Select * From Part_Xref_User Where Part = '{0}' And Locn = '{1}';",V.Passed.000007,V.Passed.000009,V.Local.sSQL)
+		F.Data.DataTable.CreateFromSQL("dtPartX1","con",V.Local.sSQL,True)		
+		'Delete XREF of Parts of other locations
+		F.Intrinsic.String.Build("Delete From Inv_Cross_Ref Where Part = '{0}' And Location <> '{1}';",V.Passed.000007,V.Passed.000009,V.Local.sSQL)
+		F.ODBC.Connection!con.Execute(V.Local.sSQL)
+		F.Intrinsic.String.Build("Delete From Part_Xref_User Where Part = '{0}' And Locn <> '{1}';",V.Passed.000007,V.Passed.000009,V.Local.sSQL)
+		F.ODBC.Connection!con.Execute(V.Local.sSQL)		
+		'Update other locations Part Cross Ref Information (Inv_Cross_Ref,Part_Xref_User)
+		F.Intrinsic.Control.For(V.Local.iCnt,0,V.DataTable.dtInvMstr2.RowCount--,1)
+			F.Data.DataTable.SetValue("dtInvX1",-1,"Part",V.DataTable.dtInvMstr2(V.Local.iCnt).Part!FieldVal,"Location",V.DataTable.dtInvMstr2(V.Local.iCnt).Location!FieldVal)
+			F.Data.DataTable.SaveToDB("dtInvX1","con","Inv_Cross_Ref","Part*!*Location*!*Customer*!*Customer_Part*!*Vendor*!*Mfg_Part",256)
+			F.Data.DataTable.SetValue("dtPartX1",-1,"Part",V.DataTable.dtInvMstr2(V.Local.iCnt).Part!FieldVal,"Locn",V.DataTable.dtInvMstr2(V.Local.iCnt).Location!FieldVal)
+			F.Data.DataTable.SaveToDB("dtPartX1","con","Part_Xref_User","User_Part*!*Part*!*Locn*!*Cust*!*Cust_Part*!*Vendor*!*Mfg_Part",256)
+		F.Intrinsic.Control.Next(V.Local.iCnt)
+		
+	F.Intrinsic.Control.EndIf	
+F.Intrinsic.Control.EndIf 
+
+f.ODBC.Connection!con.Close
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Processing_Update")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: Project",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+
+Program.Sub.Processing_Update.End
+
+Program.Sub.Maintenance_Program.Start
+F.Intrinsic.Control.SetErrorHandler("Maintenance_Program")
+F.Intrinsic.Control.ClearErrors
+V.Local.sError.Declare(String)
+
+'Populate Code_Sort Dropdownlist
+F.ODBC.Connection!con.OpenRecordsetRO("RST","SELECT SORT_CODE FROM INV_SORT ORDER BY SORT_CODE")
+F.Intrinsic.Control.DoUntil(V.ODBC.con!RST.EOF,=,"True")
+	gui.Form.ddlSortCode.AddItem(V.ODBC.con!RST.FieldValLTrim!Sort_Code)
+	F.ODBC.con!RST.MoveNext
+F.Intrinsic.Control.Loop
+F.ODBC.con!RST.Close
+
+'Populate gsCodeSort
+f.Data.DataTable.CreateFromSQL("D","con","Select Code_SORT, 'Delete' as DeleteRow from GCG_4947_Code_Sort",True)
+gui.Form.gsCodeSort.AddGridviewFromDatatable("GV","D")
+gui.Form.gsCodeSort.SetColumnProperty("GV","DeleteRow","AllowEdit","False")
+gui.Form.gsCodeSort.SetColumnProperty("GV","DeleteRow","ReadOnly","True")
+gui.Form.gsCodeSort.SetColumnProperty("GV","Code_Sort","Caption","Sort Code")
+gui.Form.gsCodeSort.SetColumnProperty("GV","DeleteRow","Caption","Delete Row")
+gui.Form.gsCodeSort.MainView("GV")
+gui.Form..Show
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Maintenance_Program")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: Project",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+Program.Sub.Maintenance_Program.End
+
+Program.Sub.cmdAdd_Click.Start
+F.Intrinsic.Control.SetErrorHandler("cmdAdd_Click")
+F.Intrinsic.Control.ClearErrors
+v.Local..BulkDeclareString(sError,sHold,sSQL)
+
+f.Intrinsic.String.Build("Code_Sort = '{0}'",v.Screen.Form!ddlSortCode.Text,v.Local.sHold)
+f.Data.DataTable.Select("D",v.Local.sHold,v.Local.sHold)
+f.Intrinsic.Control.If(v.Local.sHold,<>,"***NORETURN***")
+	f.Intrinsic.UI.Msgbox("Code Sort is already in the list","Duplicate adding")
+	f.Intrinsic.Control.ExitSub	
+f.Intrinsic.Control.EndIf
+
+f.Data.DataTable.AddRow("D","Code_Sort",v.Screen.Form!ddlSortCode.Text,"DeleteRow","Delete")
+f.Intrinsic.String.Build("Insert into GCG_4947_Code_Sort values ('{0}')",v.Screen.Form!ddlSortCode.Text,v.Local.sSQL)
+f.ODBC.Connection!con.Execute(v.Local.sSQL)
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("cmdAdd_Click")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: Project",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+
+Program.Sub.cmdAdd_Click.End
+
+Program.Sub.gsCodeSource_RowCellClick.Start
+F.Intrinsic.Control.SetErrorHandler("gsCodeSource_RowCellClick")
+F.Intrinsic.Control.ClearErrors
+v.Local..BulkDeclareString(sError,sSQL)
+
+f.Intrinsic.Control.If(v.Args.Column,=,"DeleteRow")
+	f.Intrinsic.String.Build("Delete from GCG_4947_Code_Sort where Code_Sort = '{0}'",v.DataTable.D(v.Args.RowIndex).Code_Sort!FieldValString,v.Local.sSQL)
+	f.ODBC.Connection!con.Execute(v.Local.sSQL)
+	f.Data.DataTable.DeleteRow("D",v.Args.RowIndex)
+f.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("gsCodeSource_RowCellClick")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: Project",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+Program.Sub.gsCodeSource_RowCellClick.End
+
+Program.Sub.Form_UnLoad.Start
+F.Intrinsic.Control.SetErrorHandler("Form_Unload")
+F.Intrinsic.Control.ClearErrors
+V.Local.sError.Declare(String)
+
+F.ODBC.Connection!con.Close
+f.Intrinsic.Control.End
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Form_Unload")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: Project",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+
+Program.Sub.Form_UnLoad.End
+Program.Sub.Comments.Start
+${$0$}$GAB_4558_Upd_Inv_Info_Loc$}$AGV$}$04/26/2017 3:13:30 PM$}$False
+Program.Sub.Comments.End
